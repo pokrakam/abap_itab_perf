@@ -8,14 +8,15 @@ CLASS lcl_profiler DEFINITION CREATE PRIVATE.
     CLASS-METHODS run.
 
   PRIVATE SECTION.
-    CONSTANTS c_repeat TYPE i VALUE 1000000.
-
     TYPES: BEGIN OF ty_struct,
              id  TYPE i,
              val TYPE i,
            END OF ty_struct.
     TYPES ty_itab TYPE SORTED TABLE OF ty_struct WITH UNIQUE KEY id.
 
+    CONSTANTS c_repeat TYPE i VALUE 1000000.
+
+    DATA my_default TYPE ty_struct.
     DATA itab TYPE SORTED TABLE OF ty_struct WITH UNIQUE KEY id.
 
     DATA find_id TYPE i.
@@ -32,6 +33,7 @@ CLASS lcl_profiler IMPLEMENTATION.
     DO 10 TIMES.
       INSERT VALUE #( id = sy-index ) INTO TABLE itab.
     ENDDO.
+    my_default = VALUE #( id = 55 val = 9999 ).
   ENDMETHOD.
 
   METHOD run.
@@ -106,6 +108,18 @@ CLASS lcl_profiler IMPLEMENTATION.
       IF row IS INITIAL.
       ENDIF.
     _stop_timer `VALUE #( itabl[ ... ] OPTIONAL )       `.
+
+    _start_timer.
+      row = VALUE #( itab[ id = find_id ] OPTIONAL ).
+    _stop_timer `VALUE #( itabl[ ... ] OPTIONAL ) w/o IF`.
+
+    _start_timer.
+      row = VALUE #( itab[ id = find_id ] OPTIONAL ).
+    _stop_timer `VALUE #( itabl[ ... ] OPTIONAL w/o IF )`.
+
+    _start_timer.
+      row = VALUE #( itab[ id = find_id ] DEFAULT my_default ).
+    _stop_timer `VALUE #( itabl[ ... ] DEFAULT w/o IF ) `.
 
     _start_timer.
       TRY.
