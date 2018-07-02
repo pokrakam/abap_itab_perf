@@ -18,6 +18,18 @@
      <ENTRY>Test performance of internal table searches</ENTRY>
      <LENGTH>43</LENGTH>
     </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_REPEAT</KEY>
+     <ENTRY>Repeat Counter</ENTRY>
+     <LENGTH>22</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_SIZE</KEY>
+     <ENTRY>Size of internal table</ENTRY>
+     <LENGTH>30</LENGTH>
+    </item>
    </TPOOL>
   </asx:values>
  </asx:abap>
