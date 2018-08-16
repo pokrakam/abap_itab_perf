@@ -1,11 +1,14 @@
 REPORT ztest_itab_search_perf.
 
+PARAMETERS: p_repeat TYPE i DEFAULT 1000000,
+            p_size   TYPE i DEFAULT 10235.
+
 *-----------------------------------------------------------------------*
-CLASS lcl_main DEFINITION.
+CLASS lcl_profiler DEFINITION CREATE PRIVATE.
 *-----------------------------------------------------------------------*
 
   PUBLIC SECTION.
-    METHODS start.
+    CLASS-METHODS run.
 
   PRIVATE SECTION.
     TYPES: BEGIN OF ty_struct,
@@ -14,106 +17,124 @@ CLASS lcl_main DEFINITION.
            END OF ty_struct.
     TYPES ty_itab TYPE SORTED TABLE OF ty_struct WITH UNIQUE KEY id.
 
-    CONSTANTS repeat TYPE i VALUE 1000000.
-    DATA itab TYPE SORTED TABLE OF ty_struct WITH UNIQUE KEY id.
-    DATA find_id TYPE i.
+    DATA repeat TYPE i.
+    DATA my_default TYPE ty_struct.
+    DATA itab TYPE ty_itab.
 
-    METHODS run_tests.
+    METHODS constructor IMPORTING size   TYPE i DEFAULT p_size
+                                  repeat TYPE i DEFAULT p_repeat.
+    METHODS execute IMPORTING find_id TYPE i
+                              user    TYPE syuname.
 ENDCLASS.
 
 *-----------------------------------------------------------------------*
-CLASS lcl_main IMPLEMENTATION.
+CLASS lcl_profiler IMPLEMENTATION.
 *-----------------------------------------------------------------------*
-
-  METHOD start.
-
-    DO 10 TIMES.
-      INSERT VALUE #( id = sy-index ) INTO TABLE itab.
+  METHOD constructor.
+    DATA rnd TYPE REF TO if_random_number.
+    rnd ?= NEW cl_random_number( ).
+    rnd->init( i_seed = 78348 ).
+    me->repeat = repeat.
+    DO size TIMES.
+      INSERT VALUE #( id = sy-index val = rnd->get_random_int( 9999 ) ) INTO TABLE itab.
     ENDDO.
+    my_default = VALUE #( id = 55 val = 9999 ).
+  ENDMETHOD.
+
+  METHOD run.
+    DATA(access) = NEW lcl_profiler( size = p_size ).
 
     WRITE: / 'Lookup nonexisting value:'.
-    run_tests( ).
+    access->execute( find_id = 0
+                     user = 'XXXS' ).
     ULINE.
 
     WRITE: / 'Lookup existing value:'.
-    find_id = 5.
-    run_tests( ).
-
+    access->execute( find_id = 5
+                     user = sy-uname ).
   ENDMETHOD.
 
-  METHOD run_tests.
+  DEFINE _start_timer.
+    GET RUN TIME FIELD start.
+    DO repeat TIMES.
+  END-OF-DEFINITION.
+
+  DEFINE _stop_timer.
+    ENDDO.
+    GET RUN TIME FIELD stop.
+    WRITE: / &1 && |: { stop - start }|.
+  END-OF-DEFINITION.
+
+  METHOD execute.
+    DATA start TYPE i.
+    DATA stop TYPE i.
     DATA row TYPE ty_struct.
 
+    _start_timer.
+    IF line_exists( itab[ id = find_id ] ).
+    ENDIF.
+    _stop_timer `line_exists( )                         `.
 
-    GET RUN TIME FIELD DATA(start).
-    DO repeat TIMES.
-      IF line_exists( itab[ id = find_id ] ).
-      ENDIF.
-    ENDDO.
-    GET RUN TIME FIELD DATA(stop).
-    WRITE: / |line_exists( )                         : { stop - start }|.
+    _start_timer.
+    READ TABLE itab WITH KEY id = find_id TRANSPORTING NO FIELDS.
+    IF sy-subrc <> 0.
+      "Empty IF-block, just to provide equivalence to catch block
+    ENDIF.
+    _stop_timer `READ TABLE ... TRANSPORTING NO FIELDS  `.
 
+    _start_timer.
+    READ TABLE itab INTO row WITH KEY id = find_id.
+    IF sy-subrc <> 0.
+    ENDIF.
+    _stop_timer `READ TABLE                             `.
 
-    GET RUN TIME FIELD start.
-    DO repeat TIMES.
-      READ TABLE itab WITH KEY id = find_id TRANSPORTING NO FIELDS.
-      IF sy-subrc <> 0.
-        "Empty IF-block, just to provide equivalence to catch block
-      ENDIF.
-    ENDDO.
-    GET RUN TIME FIELD stop.
-    WRITE: / |READ TABLE ... TRANSPORTING NO FIELDS  : { stop - start }|.
+    _start_timer.
+    DATA(idx) = line_index( itab[ id = find_id ] ).
+    IF idx GT 0.
+      row = itab[ idx ].
+    ENDIF.
+    _stop_timer `line_index( )                          `.
 
+    _start_timer.
+    ASSIGN itab[ id = find_id ] TO FIELD-SYMBOL(<row>).
+    IF sy-subrc <> 0.
+    ENDIF.
+    _stop_timer `ASSIGN itab[ ... ]                     `.
 
-    GET RUN TIME FIELD start.
-    DO repeat TIMES.
-      READ TABLE itab INTO row WITH KEY id = find_id.
-      IF sy-subrc <> 0.
-      ENDIF.
-    ENDDO.
-    GET RUN TIME FIELD stop.
-    WRITE: / |READ TABLE                             : { stop - start }|.
+    _start_timer.
+    DATA(row_ref) = REF #( itab[ id = find_id ] OPTIONAL ) .
+    IF sy-subrc <> 0.
+    ENDIF.
+    _stop_timer `REF #( itab[ ... ] OPTIONAL )          `.
 
+    _start_timer.
+    row = VALUE #( itab[ id = find_id ] OPTIONAL ).
+    IF row IS INITIAL.
+    ENDIF.
+    _stop_timer `VALUE #( itabl[ ... ] OPTIONAL )       `.
 
-    GET RUN TIME FIELD start.
-    DO repeat TIMES.
-      ASSIGN itab[ id = find_id ] TO FIELD-SYMBOL(<row>).
-      IF sy-subrc <> 0.
-      ENDIF.
-    ENDDO.
-    GET RUN TIME FIELD stop.
-    WRITE: / |ASSIGN itab[ ... ]                     : { stop - start }|.
+    _start_timer.
+    row = VALUE #( itab[ id = find_id ] OPTIONAL ).
+    _stop_timer `VALUE #( itabl[ ... ] OPTIONAL ) w/o IF`.
 
+    _start_timer.
+    row = VALUE #( itab[ id = find_id ] OPTIONAL ).
+    _stop_timer `VALUE #( itabl[ ... ] OPTIONAL w/o IF )`.
 
-    GET RUN TIME FIELD start.
-    DO repeat TIMES.
-      DATA(row_ref) = REF #( itab[ id = find_id ] OPTIONAL ) .
-      IF sy-subrc <> 0.
-      ENDIF.
-    ENDDO.
-    GET RUN TIME FIELD stop.
-    WRITE: / |REF #( itab[ ... ] OPTIONAL )          : { stop - start }|.
+    _start_timer.
+    row = VALUE #( itab[ id = find_id ] DEFAULT my_default ).
+    _stop_timer `VALUE #( itabl[ ... ] DEFAULT w/o IF ) `.
 
+    _start_timer.
+    TRY.
+        row = itab[ id = find_id ].
+      CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+    ENDTRY.
+    _stop_timer `TRY ... itab[ ... ] CATCH              `.
 
-    GET RUN TIME FIELD start.
-    DO repeat TIMES.
-      row = VALUE #( itab[ id = find_id ] OPTIONAL ).
-      IF row IS INITIAL.
-      ENDIF.
-    ENDDO.
-    GET RUN TIME FIELD stop.
-    WRITE: / |VALUE #( itabl[ ... ] OPTIONAL )       : { stop - start }|.
-
-
-    GET RUN TIME FIELD start.
-    DO repeat TIMES.
-      TRY.
-          row = itab[ id = find_id ].
-        CATCH cx_sy_itab_line_not_found.
-      ENDTRY.
-    ENDDO.
-    GET RUN TIME FIELD stop.
-    WRITE: / |TRY ... itab[ ... ] CATCH              : { stop - start }|.
+    _start_timer.
+    SELECT SINGLE bname FROM usr01 INTO @DATA(lv_name) WHERE bname = @user.
+    _stop_timer `SELECT SINGLE FROM usr01 WHERE ...     `.
 
   ENDMETHOD.
 
@@ -123,4 +144,4 @@ ENDCLASS.
 *-----------------------------------------------------------------------*
 START-OF-SELECTION.
 *-----------------------------------------------------------------------*
-  NEW lcl_main( )->start( ).
+  lcl_profiler=>run( ).
